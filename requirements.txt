@@ -1,7 +1,20 @@
+# Web framework
 fastapi>=0.104.0
-uvicorn>=0.24.0
+uvicorn[standard]>=0.24.0
 python-multipart>=0.0.6
+
+# PDF parsing
 PyPDF2>=3.0.1
+
+# AI / Embeddings
 google-generativeai>=0.3.0
-numpy>=2.0.0
+numpy>=1.24.0
+
+# Config
 python-dotenv>=1.0.0
+
+# Caching / Storage (optional – app falls back to in-memory if unavailable)
+redis[hiredis]>=5.0.0
+
+# SSE streaming support
+sse-starlette>=1.6.0
