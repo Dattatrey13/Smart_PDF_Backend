@@ -1,0 +1,43 @@
+# Secrets & credentials
+firebase_credentials.json
+google-services.json
+*.pem
+*.key
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+.venv/
+venv/
+env/
+
+# Debug/test files
+debug_test.py
+diagnose_network.py
+fix_credentials.py
+test_otp_email.py
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node
+node_modules/
+
+# Old git backup
+.git_backup/
