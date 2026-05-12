@@ -9,6 +9,8 @@ from datetime import datetime, timezone, timedelta
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
+import resend
+
 from auth.config import (
     OTP_LENGTH,
     OTP_EXPIRY_MINUTES,
@@ -19,6 +21,8 @@ from auth.config import (
     SMTP_PASSWORD,
     SMTP_FROM_NAME,
     SMTP_FROM_EMAIL,
+    RESEND_API_KEY,
+    EMAIL_PROVIDER,
 )
 from auth.firebase_admin_init import get_firestore_client
 
@@ -147,25 +151,9 @@ async def verify_stored_otp(email: str, otp: str) -> dict:
         return {"success": False, "error": "Error verifying OTP. Please try again."}
 
 
-def _send_otp_email_sync(email: str, otp: str) -> bool:
-    """Send OTP email using SMTP (synchronous)."""
-    logger.debug(f"[OTP_EMAIL] Starting email send process for {email}")
-    
-    if not SMTP_USER or not SMTP_PASSWORD:
-        logger.error(f"[OTP_EMAIL] SMTP credentials not configured. SMTP_USER: {bool(SMTP_USER)}, SMTP_PASSWORD: {bool(SMTP_PASSWORD)}")
-        return False
-
-    logger.debug(f"[OTP_EMAIL] SMTP Config - Host: {SMTP_HOST}, Port: {SMTP_PORT}, From: {SMTP_FROM_EMAIL}")
-
-    try:
-        msg = MIMEMultipart("alternative")
-        msg["Subject"] = f"Your Smart PDF Verification Code: {otp}"
-        msg["From"] = f"{SMTP_FROM_NAME} <{SMTP_FROM_EMAIL}>"
-        msg["To"] = email
-
-        logger.debug(f"[OTP_EMAIL] Building email message for {email}")
-
-        html_body = f"""
+def _build_otp_html(otp: str) -> str:
+    """Build the HTML body for the OTP email."""
+    return f"""
         <html>
         <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 20px; background-color: #f5f5f5;">
             <div style="max-width: 500px; margin: 0 auto; background: white; border-radius: 16px; padding: 40px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
@@ -181,6 +169,51 @@ def _send_otp_email_sync(email: str, otp: str) -> bool:
         </html>
         """
 
+
+def _send_otp_email_resend(email: str, otp: str) -> bool:
+    """Send OTP email using Resend HTTP API (works on Render/cloud platforms)."""
+    logger.debug(f"[OTP_EMAIL] Sending via Resend API for {email}")
+
+    if not RESEND_API_KEY:
+        logger.error("[OTP_EMAIL] RESEND_API_KEY not configured")
+        return False
+
+    try:
+        resend.api_key = RESEND_API_KEY
+        html_body = _build_otp_html(otp)
+
+        params: resend.Emails.SendParams = {
+            "from": f"{SMTP_FROM_NAME} <{SMTP_FROM_EMAIL}>",
+            "to": [email],
+            "subject": f"Your Smart PDF Verification Code: {otp}",
+            "html": html_body,
+        }
+
+        result = resend.Emails.send(params)
+        logger.info(f"[OTP_EMAIL] OTP email sent successfully via Resend to {email}. ID: {result.get('id', 'N/A')}")
+        return True
+    except Exception as e:
+        logger.error(f"[OTP_EMAIL] Resend API error: {type(e).__name__}: {e}", exc_info=True)
+        return False
+
+
+def _send_otp_email_sync(email: str, otp: str) -> bool:
+    """Send OTP email using SMTP (synchronous fallback)."""
+    logger.debug(f"[OTP_EMAIL] Starting email send process for {email}")
+    
+    if not SMTP_USER or not SMTP_PASSWORD:
+        logger.error(f"[OTP_EMAIL] SMTP credentials not configured. SMTP_USER: {bool(SMTP_USER)}, SMTP_PASSWORD: {bool(SMTP_PASSWORD)}")
+        return False
+
+    logger.debug(f"[OTP_EMAIL] SMTP Config - Host: {SMTP_HOST}, Port: {SMTP_PORT}, From: {SMTP_FROM_EMAIL}")
+
+    try:
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = f"Your Smart PDF Verification Code: {otp}"
+        msg["From"] = f"{SMTP_FROM_NAME} <{SMTP_FROM_EMAIL}>"
+        msg["To"] = email
+
+        html_body = _build_otp_html(otp)
         msg.attach(MIMEText(html_body, "html"))
         logger.debug(f"[OTP_EMAIL] Email message built, attempting SMTP connection to {SMTP_HOST}:{SMTP_PORT}")
 
@@ -207,12 +240,14 @@ def _send_otp_email_sync(email: str, otp: str) -> bool:
 
 
 async def send_otp_email(email: str, otp: str) -> bool:
-    """Send OTP email using SMTP (async wrapper)."""
-    logger.debug(f"[OTP_EMAIL] Async wrapper called for {email}")
+    """Send OTP email using configured provider (Resend or SMTP)."""
+    logger.debug(f"[OTP_EMAIL] Async wrapper called for {email}, provider: {EMAIL_PROVIDER}")
     try:
-        # Run blocking SMTP operation in thread pool
         loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(_executor, _send_otp_email_sync, email, otp)
+        if EMAIL_PROVIDER == "resend":
+            result = await loop.run_in_executor(_executor, _send_otp_email_resend, email, otp)
+        else:
+            result = await loop.run_in_executor(_executor, _send_otp_email_sync, email, otp)
         logger.debug(f"[OTP_EMAIL] Email send result: {result}")
         return result
     except Exception as e:
