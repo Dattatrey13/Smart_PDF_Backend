@@ -28,4 +28,4 @@ SMTP_FROM_EMAIL = os.getenv("SMTP_FROM_EMAIL", SMTP_USER)
 
 # Email (Resend - preferred for cloud platforms like Render)
 RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
-EMAIL_PROVIDER = os.getenv("EMAIL_PROVIDER", "resend")  # "resend" or "smtp"
+EMAIL_PROVIDER = os.getenv("EMAIL_PROVIDER", "auto")  # "resend", "smtp", or "auto" (tries resend then smtp)

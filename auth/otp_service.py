@@ -1,5 +1,6 @@
 """OTP generation, hashing, and email sending."""
 import hashlib
+import os
 import secrets
 import smtplib
 import logging
@@ -192,8 +193,13 @@ def _send_otp_email_resend(email: str, otp: str) -> bool:
         resend.api_key = RESEND_API_KEY
         html_body = _build_otp_html(otp)
 
+        # Use RESEND_FROM_EMAIL if set, otherwise fall back to onboarding@resend.dev
+        # NOTE: Resend requires a verified domain. gmail.com/yahoo.com etc. won't work.
+        resend_from = os.getenv("RESEND_FROM_EMAIL", "onboarding@resend.dev")
+        from_addr = f"{SMTP_FROM_NAME} <{resend_from}>"
+
         params: resend.Emails.SendParams = {
-            "from": f"{SMTP_FROM_NAME} <{SMTP_FROM_EMAIL}>",
+            "from": from_addr,
             "to": [email],
             "subject": f"Your Smart PDF Verification Code: {otp}",
             "html": html_body,
@@ -250,14 +256,28 @@ def _send_otp_email_sync(email: str, otp: str) -> bool:
 
 
 async def send_otp_email(email: str, otp: str) -> bool:
-    """Send OTP email using configured provider (Resend or SMTP)."""
+    """Send OTP email using configured provider with automatic fallback.
+    
+    Provider priority:
+    - 'resend': try Resend only
+    - 'smtp': try SMTP only
+    - 'auto' (default): try Resend first, fall back to SMTP on failure
+    """
     logger.debug(f"[OTP_EMAIL] Async wrapper called for {email}, provider: {EMAIL_PROVIDER}")
     try:
         loop = asyncio.get_event_loop()
-        if EMAIL_PROVIDER == "resend":
+
+        if EMAIL_PROVIDER == "smtp":
+            result = await loop.run_in_executor(_executor, _send_otp_email_sync, email, otp)
+        elif EMAIL_PROVIDER == "resend":
             result = await loop.run_in_executor(_executor, _send_otp_email_resend, email, otp)
         else:
-            result = await loop.run_in_executor(_executor, _send_otp_email_sync, email, otp)
+            # auto mode: try Resend first, fall back to SMTP
+            result = await loop.run_in_executor(_executor, _send_otp_email_resend, email, otp)
+            if not result:
+                logger.warning("[OTP_EMAIL] Resend failed, falling back to SMTP")
+                result = await loop.run_in_executor(_executor, _send_otp_email_sync, email, otp)
+
         logger.debug(f"[OTP_EMAIL] Email send result: {result}")
         return result
     except Exception as e:
