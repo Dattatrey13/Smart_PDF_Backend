@@ -8,6 +8,7 @@ from pydantic import BaseModel, field_validator
 from auth.otp_service import (
     generate_otp,
     store_otp,
+    delete_otp,
     verify_stored_otp,
     send_otp_email,
 )
@@ -168,6 +169,7 @@ async def signup(request: SignUpRequest):
 
     sent = await send_otp_email(email, otp)
     if not sent:
+        await delete_otp(email)  # Clean up so user can retry immediately
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to send OTP email. Please try again.",
@@ -335,6 +337,7 @@ async def resend_otp_endpoint(request: ResendOtpRequest):
 
     sent = await send_otp_email(email, otp)
     if not sent:
+        await delete_otp(email)  # Clean up so user can retry immediately
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to send OTP email. Please try again.",

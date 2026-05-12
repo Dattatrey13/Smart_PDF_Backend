@@ -45,6 +45,16 @@ def verify_otp_hash(otp: str, otp_hash: str) -> bool:
     return hashlib.sha256(otp.encode()).hexdigest() == otp_hash
 
 
+async def delete_otp(email: str) -> None:
+    """Delete OTP record from Firestore (cleanup on email failure)."""
+    try:
+        db = get_firestore_client()
+        db.collection("otp_verifications").document(email).delete()
+        logger.debug(f"[OTP_DELETE] Cleaned up OTP for {email}")
+    except Exception as e:
+        logger.error(f"[OTP_DELETE] Failed to clean up OTP for {email}: {e}")
+
+
 async def store_otp(email: str, otp: str) -> bool:
     """Store hashed OTP in Firestore with expiry and attempt tracking."""
     db = get_firestore_client()
@@ -175,7 +185,7 @@ def _send_otp_email_resend(email: str, otp: str) -> bool:
     logger.debug(f"[OTP_EMAIL] Sending via Resend API for {email}")
 
     if not RESEND_API_KEY:
-        logger.error("[OTP_EMAIL] RESEND_API_KEY not configured")
+        logger.error("[OTP_EMAIL] RESEND_API_KEY not configured. Set RESEND_API_KEY env var on Render (get one from https://resend.com/api-keys)")
         return False
 
     try:
