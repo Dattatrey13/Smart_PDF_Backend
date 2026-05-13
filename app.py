@@ -169,7 +169,19 @@ async def upload_pdf(file: UploadFile = File(...)):
 
         text = extract_text_from_pdf(content)
         if not text.strip():
-            raise HTTPException(status_code=400, detail="Could not extract text from PDF")
+            # Attempt OCR via Gemini for scanned/image-based PDFs
+            try:
+                from services.pdf_processor import pdf_processor
+                result = pdf_processor.process(content, file.filename)
+                if result.chunks:
+                    text = result.full_text
+                else:
+                    raise HTTPException(status_code=400, detail="Could not extract text from PDF. The PDF may be image-based and OCR could not read it.")
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"[Legacy] OCR fallback failed: {e}")
+                raise HTTPException(status_code=400, detail="Could not extract text from PDF")
 
         chunks = chunk_text(text, max_tokens=settings.AI_CHUNK_SIZE)
         if not chunks:

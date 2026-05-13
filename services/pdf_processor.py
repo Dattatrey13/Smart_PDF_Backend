@@ -146,7 +146,18 @@ class PdfProcessor:
 
         # If no text extracted, likely a scanned PDF (needs OCR)
         if not metadata.has_text:
-            logger.info(f"PDF '{filename}' appears to be scanned (no extractable text)")
+            logger.info(f"PDF '{filename}' appears to be scanned (no extractable text), attempting Gemini OCR...")
+            try:
+                ocr_text = self._ocr_with_gemini(content, filename)
+                if ocr_text and len(ocr_text.split()) > 10:
+                    full_text = ocr_text
+                    metadata.total_words = len(full_text.split())
+                    metadata.has_text = True
+                    logger.info(f"Gemini OCR extracted {metadata.total_words} words from '{filename}'")
+                else:
+                    logger.warning(f"Gemini OCR returned insufficient text for '{filename}'")
+            except Exception as e:
+                logger.error(f"Gemini OCR failed for '{filename}': {e}")
 
         # Chunk the text
         chunks = self.chunk_text(full_text)
@@ -198,6 +209,51 @@ class PdfProcessor:
         except Exception as e:
             logger.error(f"Text extraction failed: {e}")
             return ""
+
+    def _ocr_with_gemini(self, content: bytes, filename: str) -> str:
+        """
+        Use Gemini's vision capability to extract text from a scanned/image-based PDF.
+        Sends the PDF bytes directly to Gemini which can process PDF documents natively.
+        """
+        import os
+        from google import genai
+        from google.genai import types
+
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            logger.error("GEMINI_API_KEY not set, cannot perform OCR")
+            return ""
+
+        client = genai.Client(api_key=api_key)
+
+        prompt = (
+            "Extract ALL text from this PDF document. "
+            "The PDF contains scanned pages or images of text. "
+            "Return only the extracted text content, preserving the original structure "
+            "(paragraphs, headings, lists, tables). "
+            "Do not add any commentary or explanation — only the text from the document."
+        )
+
+        try:
+            response = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=[
+                    types.Content(
+                        parts=[
+                            types.Part.from_bytes(data=content, mime_type="application/pdf"),
+                            types.Part.from_text(text=prompt),
+                        ]
+                    )
+                ],
+                config=types.GenerateContentConfig(
+                    temperature=0.0,
+                ),
+            )
+            text = response.text or ""
+            return text.strip()
+        except Exception as e:
+            logger.error(f"Gemini OCR API call failed: {e}")
+            raise
 
     def get_page_text(self, content: bytes, page_number: int) -> str:
         """Extract text from a specific page (1-indexed)."""
