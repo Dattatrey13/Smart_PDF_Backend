@@ -3,8 +3,6 @@ import logging
 from fastapi import Depends, HTTPException, Header, status
 
 from auth.firebase_admin_init import verify_firebase_token
-from auth.rate_limiter import check_ai_cooldown, check_daily_ai_limit
-from auth.user_service import get_user_ai_limits
 
 logger = logging.getLogger(__name__)
 
@@ -34,10 +32,14 @@ async def get_current_user(authorization: str = Header(...)) -> dict:
 
 async def require_ai_access(current_user: dict = Depends(get_current_user)) -> dict:
     """
-    FastAPI dependency: Verify user has AI access (valid account + within limits).
-    Chain after get_current_user.
-    Returns user info with access details.
+    Legacy AI-access dependency kept for backward-compatible legacy endpoints in app.py.
+    New routes should use ``dependencies.guards.require_ai_access`` instead.
     """
+    from dependencies.guards import require_ai_access as _new_guard
+    # Delegate to the new guard (will re-resolve the user via Depends chain,
+    # but for legacy callers that pass ``current_user`` directly, we just
+    # return what we have enriched with the plan).
+    from auth.user_service import get_user_ai_limits
     uid = current_user.get("uid")
     if not uid:
         raise HTTPException(
@@ -45,7 +47,6 @@ async def require_ai_access(current_user: dict = Depends(get_current_user)) -> d
             detail="Invalid user token",
         )
 
-    # Check account status and limits
     limits = await get_user_ai_limits(uid)
 
     if limits.get("account_status") != "active":
@@ -54,26 +55,8 @@ async def require_ai_access(current_user: dict = Depends(get_current_user)) -> d
             detail="Your account has been suspended. Please contact support.",
         )
 
-    # Check cooldown
-    if not check_ai_cooldown(uid):
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Please wait a few seconds between AI requests.",
-        )
-
-    # Check daily limit
-    daily_limit = limits.get("daily_limit", 20)
-    limit_check = await check_daily_ai_limit(uid, daily_limit)
-
-    if not limit_check["allowed"]:
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail=f"Daily AI limit reached ({limit_check['used']}/{limit_check['limit']}). "
-                   f"Resets at {limit_check['reset_at']}. Upgrade to Premium for more.",
-        )
-
     return {
         **current_user,
-        "ai_limits": limit_check,
+        "ai_limits": limits,
         "subscription_plan": limits.get("subscription_plan", "free"),
     }

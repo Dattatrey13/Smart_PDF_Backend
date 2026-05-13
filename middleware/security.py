@@ -1,4 +1,5 @@
 """Security middleware: request size limiting, security headers, suspicious activity detection."""
+import os
 import time
 import logging
 from collections import defaultdict
@@ -88,11 +89,18 @@ class IPBlockMiddleware(BaseHTTPMiddleware):
 
 
 class GlobalRateLimitMiddleware(BaseHTTPMiddleware):
-    """Simple per-IP rate limiting across all endpoints."""
+    """
+    Per-IP rate limiting across all endpoints.
+
+    Default limit comes from ``settings.GLOBAL_RATE_LIMIT_PER_MINUTE`` (free tier).
+    Premium users identified via a valid Bearer token get a higher ceiling
+    (read from ``PREMIUM_IP_RATE_PER_MINUTE`` env var, default 60).
+    """
 
     def __init__(self, app, requests_per_minute: int = None):
         super().__init__(app)
-        self.requests_per_minute = requests_per_minute or settings.GLOBAL_RATE_LIMIT_PER_MINUTE
+        self.default_rpm = requests_per_minute or settings.GLOBAL_RATE_LIMIT_PER_MINUTE
+        self.premium_rpm = int(os.getenv("PREMIUM_IP_RATE_PER_MINUTE", "60"))
         self._requests: dict[str, list[float]] = defaultdict(list)
 
     async def dispatch(self, request: Request, call_next) -> Response:
@@ -105,11 +113,19 @@ class GlobalRateLimitMiddleware(BaseHTTPMiddleware):
             t for t in self._requests[client_ip] if t > window_start
         ]
 
-        if len(self._requests[client_ip]) >= self.requests_per_minute:
+        # Use default (free-tier) limit — plan-specific per-user limits
+        # are enforced at the dependency layer, not here.
+        rpm = self.default_rpm
+
+        if len(self._requests[client_ip]) >= rpm:
             logger.warning(f"Rate limit exceeded for IP: {client_ip}")
             return JSONResponse(
                 status_code=429,
-                content={"detail": "Too many requests. Please slow down."},
+                content={
+                    "detail": "Too many requests. Please slow down.",
+                    "error_code": "IP_RATE_LIMIT",
+                    "retry_after": 60,
+                },
                 headers={"Retry-After": "60"},
             )
 

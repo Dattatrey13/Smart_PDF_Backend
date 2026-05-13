@@ -266,14 +266,10 @@ async def create_or_update_subscription(
 
 
 def _get_plan_limits(plan: str) -> dict:
-    """Get AI limits based on subscription plan."""
-    plans = {
-        "free": {"daily_limit": MAX_AI_REQUESTS_FREE_DAILY},
-        "basic": {"daily_limit": 50},
-        "premium": {"daily_limit": 200},
-        "enterprise": {"daily_limit": 1000},
-    }
-    return plans.get(plan, plans["free"])
+    """Get AI limits based on subscription plan (uses central tier definitions)."""
+    from models.tier_limits import get_tier_limits
+    tier = get_tier_limits(plan)
+    return {"daily_limit": tier.ai_requests_per_day}
 
 
 # ─── App Settings ────────────────────────────────────────────────────────────

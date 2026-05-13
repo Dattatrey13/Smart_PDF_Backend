@@ -28,6 +28,7 @@ from middleware.exceptions import register_exception_handlers
 from routers.ai import router as ai_router, init_ai_router
 from routers.pdf import router as pdf_router, init_pdf_router
 from routers.health import router as health_router, init_health_router
+from routers.usage import router as usage_router
 from auth.routes import router as auth_router
 
 # Services
@@ -142,6 +143,7 @@ register_exception_handlers(app)
 app.include_router(ai_router)
 app.include_router(pdf_router)
 app.include_router(health_router)
+app.include_router(usage_router)
 app.include_router(auth_router)
 
 

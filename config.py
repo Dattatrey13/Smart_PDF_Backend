@@ -28,8 +28,8 @@ class Settings:
     ]
 
     # ─── Security ────────────────────────────────────────────────────────────
-    # Maximum request body size (bytes) — 55 MB (slightly above 50MB PDF limit)
-    MAX_REQUEST_SIZE: int = int(os.getenv("MAX_REQUEST_SIZE", str(55 * 1024 * 1024)))
+    # Maximum request body size (bytes) — 105 MB (slightly above premium 100MB limit)
+    MAX_REQUEST_SIZE: int = int(os.getenv("MAX_REQUEST_SIZE", str(105 * 1024 * 1024)))
     # Trusted proxy headers (for Render, Railway, etc.)
     TRUSTED_HOSTS: list[str] = [
         h.strip()
@@ -40,8 +40,9 @@ class Settings:
     ADMIN_API_KEY: str = os.getenv("ADMIN_API_KEY", "")
 
     # ─── Rate Limiting ───────────────────────────────────────────────────────
-    GLOBAL_RATE_LIMIT_PER_MINUTE: int = int(os.getenv("GLOBAL_RATE_LIMIT_PER_MINUTE", "60"))
-    UPLOAD_RATE_LIMIT_PER_HOUR: int = int(os.getenv("UPLOAD_RATE_LIMIT_PER_HOUR", "20"))
+    GLOBAL_RATE_LIMIT_PER_MINUTE: int = int(os.getenv("GLOBAL_RATE_LIMIT_PER_MINUTE", "15"))
+    PREMIUM_IP_RATE_PER_MINUTE: int = int(os.getenv("PREMIUM_IP_RATE_PER_MINUTE", "60"))
+    UPLOAD_RATE_LIMIT_PER_HOUR: int = int(os.getenv("UPLOAD_RATE_LIMIT_PER_HOUR", "10"))
 
     # ─── AI ──────────────────────────────────────────────────────────────────
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
@@ -69,15 +70,18 @@ class Settings:
     OTP_EXPIRY_MINUTES: int = 5
     OTP_MAX_ATTEMPTS: int = 5
     OTP_RESEND_COOLDOWN_SECONDS: int = 60
-    MAX_OTP_REQUESTS_PER_HOUR: int = 10
+    MAX_OTP_REQUESTS_PER_HOUR: int = 5  # free tier default
 
     # ─── AI Usage Limits ─────────────────────────────────────────────────────
     MAX_AI_REQUESTS_FREE_DAILY: int = int(os.getenv("MAX_AI_REQUESTS_FREE_DAILY", "20"))
-    AI_REQUEST_COOLDOWN_SECONDS: int = int(os.getenv("AI_REQUEST_COOLDOWN_SECONDS", "5"))
+    AI_REQUEST_COOLDOWN_SECONDS: int = int(os.getenv("AI_REQUEST_COOLDOWN_SECONDS", "8"))
+
+    # ─── App Check ───────────────────────────────────────────────────────────
+    APP_CHECK_ENABLED: bool = os.getenv("APP_CHECK_ENABLED", "true").lower() == "true"
 
     # ─── PDF Processing ──────────────────────────────────────────────────────
-    MAX_PDF_SIZE: int = 50 * 1024 * 1024  # 50 MB
-    MAX_PDF_PAGES: int = int(os.getenv("MAX_PDF_PAGES", "500"))
+    MAX_PDF_SIZE: int = 20 * 1024 * 1024  # 20 MB free tier default
+    MAX_PDF_PAGES: int = int(os.getenv("MAX_PDF_PAGES", "150"))
     PDF_CHUNK_SIZE: int = int(os.getenv("PDF_CHUNK_SIZE", "400"))
     PDF_CHUNK_OVERLAP: int = int(os.getenv("PDF_CHUNK_OVERLAP", "50"))
 

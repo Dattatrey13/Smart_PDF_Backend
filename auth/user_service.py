@@ -1,9 +1,10 @@
 """User management service for Firestore."""
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from auth.firebase_admin_init import get_firestore_client
 from auth.config import MAX_AI_REQUESTS_FREE_DAILY
+from models.tier_limits import get_tier_limits
 
 logger = logging.getLogger(__name__)
 
@@ -56,15 +57,31 @@ async def create_or_update_user(
         }
         user_ref.set(user_data)
 
-        # Also initialize ai_usage document
+        # Also initialize ai_usage document with full schema
+        tier = get_tier_limits("free")
+        tomorrow = (now + timedelta(days=1)).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
         ai_usage_ref = db.collection("ai_usage").document(uid)
         ai_usage_ref.set({
             "uid": uid,
+            "subscription_plan": "free",
             "used_today": 0,
-            "total_requests": 0,
-            "token_usage": 0,
+            "token_usage_today": 0,
+            "input_tokens_today": 0,
+            "output_tokens_today": 0,
+            "processed_pages_today": 0,
             "last_request_at": None,
+            "upload_count_hour": 0,
+            "upload_hour_start": None,
+            "otp_requests_hour": 0,
+            "otp_hour_start": None,
+            "concurrent_jobs": 0,
+            "ai_daily_limit": tier.ai_requests_per_day,
+            "token_limit": tier.token_budget_per_day,
+            "reset_at": tomorrow.isoformat(),
             "last_reset_date": today,
+            "total_requests": 0,
             "blocked_until": None,
         })
 

@@ -11,8 +11,9 @@ logger = logging.getLogger(__name__)
 ALLOWED_PDF_TYPES = {"application/pdf"}
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
 
-# Size limits (bytes)
-MAX_PDF_SIZE = 50 * 1024 * 1024  # 50 MB
+# Size limits (bytes) — these are absolute maximums; tier-specific limits
+# are enforced at the dependency / route layer via TierLimits.
+MAX_PDF_SIZE = 100 * 1024 * 1024  # 100 MB (premium ceiling)
 MAX_IMAGE_SIZE = 5 * 1024 * 1024  # 5 MB
 MAX_THUMBNAIL_SIZE = 1 * 1024 * 1024  # 1 MB
 

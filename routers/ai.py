@@ -5,8 +5,8 @@ from typing import List
 import numpy as np
 from fastapi import APIRouter, Depends, HTTPException
 
-from auth.dependencies import require_ai_access
-from auth.rate_limiter import increment_ai_usage
+from dependencies.guards import require_ai_access
+from services.usage_service import record_ai_request, release_job_slot
 from auth.firestore_service import save_chat_entry
 from services.cache import ai_response_cache, make_cache_key
 from services.background import task_manager
@@ -77,8 +77,8 @@ async def ask_question(body: AskRequest, user: dict = Depends(require_ai_access)
     cached_answer = ai_response_cache.get(cache_key)
     if cached_answer:
         logger.info(f"Cache hit for question on doc {body.doc_id[:8]}")
-        # Still increment usage (user consumed a response)
-        task_manager.submit(increment_ai_usage, uid)
+        task_manager.submit(record_ai_request, uid)
+        task_manager.submit(release_job_slot, uid)
         return AskResponse(answer=cached_answer, cached=True)
 
     try:
@@ -100,11 +100,21 @@ async def ask_question(body: AskRequest, user: dict = Depends(require_ai_access)
         answer = await _llm.generate(system_prompt, user_prompt)
         answer = answer.strip()
 
+        # Estimate token usage (heuristic: 1 token ≈ 4 chars)
+        input_tokens = (len(system_prompt) + len(user_prompt)) // 4
+        output_tokens = len(answer) // 4
+
         # Cache the response
         ai_response_cache.set(cache_key, answer)
 
-        # Background: increment usage + save chat
-        task_manager.submit(increment_ai_usage, uid)
+        # Background: record usage + save chat + release slot
+        task_manager.submit(
+            record_ai_request,
+            uid,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+        )
+        task_manager.submit(release_job_slot, uid)
         task_manager.submit(
             save_chat_entry,
             uid=uid,
@@ -116,6 +126,8 @@ async def ask_question(body: AskRequest, user: dict = Depends(require_ai_access)
         return AskResponse(answer=answer)
 
     except Exception as e:
+        # Always release the job slot on failure
+        task_manager.submit(release_job_slot, uid)
         logger.error(f"Ask question failed for user {uid}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="AI processing failed. Please try again.")
 
@@ -144,7 +156,8 @@ async def summarize(body: SummaryRequest, user: dict = Depends(require_ai_access
     cache_key = make_cache_key(body.doc_id, "summary", str(body.max_chunks))
     cached_summary = ai_response_cache.get(cache_key)
     if cached_summary:
-        task_manager.submit(increment_ai_usage, uid)
+        task_manager.submit(record_ai_request, uid)
+        task_manager.submit(release_job_slot, uid)
         return SummaryResponse(summary=cached_summary, cached=True)
 
     try:
@@ -160,12 +173,22 @@ async def summarize(body: SummaryRequest, user: dict = Depends(require_ai_access
         summary = await _llm.generate(system_prompt, user_prompt)
         summary = summary.strip()
 
+        input_tokens = (len(system_prompt) + len(user_prompt)) // 4
+        output_tokens = len(summary) // 4
+
         ai_response_cache.set(cache_key, summary)
-        task_manager.submit(increment_ai_usage, uid)
+        task_manager.submit(
+            record_ai_request,
+            uid,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+        )
+        task_manager.submit(release_job_slot, uid)
 
         return SummaryResponse(summary=summary)
 
     except Exception as e:
+        task_manager.submit(release_job_slot, uid)
         logger.error(f"Summary failed for user {uid}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Summary generation failed. Please try again.")
 
@@ -214,10 +237,12 @@ async def search(body: SearchRequest, user: dict = Depends(require_ai_access)):
             for i in idxs
         ]
 
-        task_manager.submit(increment_ai_usage, uid)
+        task_manager.submit(record_ai_request, uid)
+        task_manager.submit(release_job_slot, uid)
 
         return SearchResponse(hits=hits, query=body.query)
 
     except Exception as e:
+        task_manager.submit(release_job_slot, uid)
         logger.error(f"Search failed for user {uid}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Search failed. Please try again.")

@@ -7,10 +7,12 @@ import numpy as np
 from fastapi import APIRouter, File, UploadFile, HTTPException, Depends, BackgroundTasks
 
 from auth.dependencies import get_current_user
+from dependencies.guards import require_upload_access
 from auth.storage_service import validate_pdf_upload
 from auth.firestore_service import create_pdf_metadata, update_pdf_processing_status
 from services.pdf_processor import pdf_processor
 from services.background import task_manager
+from services.usage_service import record_upload, check_page_budget
 
 logger = logging.getLogger(__name__)
 
@@ -54,20 +56,25 @@ class DocumentInfoResponse(BaseModel):
 @router.post("/upload", response_model=UploadResponse)
 async def upload_pdf(
     file: UploadFile = File(...),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_upload_access),
 ):
     """
     Upload and process a PDF file.
 
     Steps:
-    1. Validate file (type, size, magic bytes)
-    2. Extract text with page-level analysis
-    3. Chunk text with overlap
-    4. Generate embeddings
-    5. Store in memory for AI queries
-    6. Save metadata to Firestore (background)
+    1. Validate file (type, size per tier, magic bytes)
+    2. Validate page count per tier
+    3. Check daily page budget
+    4. Extract text with page-level analysis
+    5. Chunk text with overlap
+    6. Generate embeddings
+    7. Store in memory for AI queries
+    8. Save metadata to Firestore (background)
+    9. Record upload in usage counters
     """
     uid = user.get("uid")
+    tier = user.get("tier")
+    plan = user.get("subscription_plan", "free")
     filename = file.filename or "document.pdf"
 
     if not filename.lower().endswith(".pdf"):
@@ -78,13 +85,26 @@ async def upload_pdf(
     except Exception:
         raise HTTPException(status_code=400, detail="Failed to read uploaded file")
 
-    # ── Validate ─────────────────────────────────────────────────────────────
+    # ── Tier-aware size validation ───────────────────────────────────────
+    if tier and len(content) > tier.pdf_upload_size_bytes:
+        max_mb = tier.pdf_upload_size_bytes // (1024 * 1024)
+        raise HTTPException(
+            status_code=413,
+            detail={
+                "detail": f"PDF exceeds {max_mb} MB limit for your plan.",
+                "error_code": "FILE_TOO_LARGE",
+                "current": len(content),
+                "limit": tier.pdf_upload_size_bytes,
+            },
+        )
+
+    # ── Basic PDF validation (magic bytes, extension) ────────────────────
     is_valid, validation_error = validate_pdf_upload(content, filename)
     if not is_valid:
         logger.warning(f"Upload rejected for user {uid}: {validation_error}")
         raise HTTPException(status_code=400, detail=validation_error)
 
-    # ── Process PDF ──────────────────────────────────────────────────────────
+    # ── Process PDF ──────────────────────────────────────────────────────
     result = pdf_processor.process(content, filename)
 
     if result.error:
@@ -93,7 +113,34 @@ async def upload_pdf(
     if not result.chunks:
         raise HTTPException(status_code=400, detail="No readable text found in PDF")
 
-    # ── Generate Embeddings ──────────────────────────────────────────────────
+    # ── Tier-aware page-count validation ─────────────────────────────────
+    if tier and result.metadata.page_count > tier.pdf_max_pages:
+        raise HTTPException(
+            status_code=413,
+            detail={
+                "detail": f"PDF has {result.metadata.page_count} pages; "
+                          f"your plan allows {tier.pdf_max_pages}.",
+                "error_code": "TOO_MANY_PAGES",
+                "current": result.metadata.page_count,
+                "limit": tier.pdf_max_pages,
+            },
+        )
+
+    # ── Daily page budget check ──────────────────────────────────────────
+    page_check = await check_page_budget(uid, result.metadata.page_count, plan)
+    if not page_check["allowed"]:
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "detail": f"Daily page-processing limit reached "
+                          f"({page_check['used']}/{page_check['limit']}).",
+                "error_code": page_check["error_code"],
+                "current": page_check["used"],
+                "limit": page_check["limit"],
+            },
+        )
+
+    # ── Generate Embeddings ──────────────────────────────────────────────
     try:
         embeddings = await _llm.embed(result.chunks)
         emb_array = np.array(embeddings, dtype="float32")
@@ -101,7 +148,7 @@ async def upload_pdf(
         logger.error(f"Embedding generation failed: {e}")
         raise HTTPException(status_code=500, detail="Failed to process PDF for AI. Please try again.")
 
-    # ── Store in Memory ──────────────────────────────────────────────────────
+    # ── Store in Memory ──────────────────────────────────────────────────
     doc_id = str(uuid.uuid4())
     _doc_store[doc_id] = {
         "chunks": result.chunks,
@@ -115,7 +162,7 @@ async def upload_pdf(
         },
     }
 
-    # ── Background: Save metadata to Firestore ───────────────────────────────
+    # ── Background: Save metadata + record upload ────────────────────────
     task_manager.submit(
         _save_pdf_metadata_background,
         uid=uid,
@@ -124,6 +171,7 @@ async def upload_pdf(
         file_size=result.metadata.file_size,
         page_count=result.metadata.page_count,
     )
+    task_manager.submit(record_upload, uid)
 
     logger.info(
         f"PDF uploaded: doc_id={doc_id[:8]}, pages={result.metadata.page_count}, "
