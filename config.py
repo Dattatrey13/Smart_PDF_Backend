@@ -77,8 +77,8 @@ class Settings:
     AI_REQUEST_COOLDOWN_SECONDS: int = int(os.getenv("AI_REQUEST_COOLDOWN_SECONDS", "8"))
 
     # ─── App Check ───────────────────────────────────────────────────────────
-    APP_CHECK_ENABLED: bool = os.getenv("APP_CHECK_ENABLED", "true").lower() == "true"
-
+    APP_CHECK_ENABLED: bool = os.getenv("APP_CHECK_ENABLED", "true").lower() == "true"    # "strict" = reject missing/invalid tokens; "permissive" = log warning but allow if auth'd
+    APP_CHECK_ENFORCEMENT: str = os.getenv("APP_CHECK_ENFORCEMENT", "permissive")
     # ─── PDF Processing ──────────────────────────────────────────────────────
     MAX_PDF_SIZE: int = 20 * 1024 * 1024  # 20 MB free tier default
     MAX_PDF_PAGES: int = int(os.getenv("MAX_PDF_PAGES", "150"))
