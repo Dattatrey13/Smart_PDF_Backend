@@ -40,7 +40,7 @@ class TierLimits:
     otp_max_failed_attempts: int = 5
 
     # IP
-    global_ip_rate_per_minute: int
+    global_ip_rate_per_minute: int = 60
 
     # Storage
     storage_limit_mb: int = 5120          # total cloud storage in MB
