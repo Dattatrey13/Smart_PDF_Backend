@@ -13,6 +13,7 @@ from auth.firestore_service import create_pdf_metadata, update_pdf_processing_st
 from services.pdf_processor import pdf_processor
 from services.background import task_manager
 from services.usage_service import record_upload, check_page_budget
+from services.storage_quota_service import check_storage_quota, record_storage_upload
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +105,23 @@ async def upload_pdf(
         logger.warning(f"Upload rejected for user {uid}: {validation_error}")
         raise HTTPException(status_code=400, detail=validation_error)
 
+    # ── Storage quota check ──────────────────────────────────────────────
+    sq = await check_storage_quota(uid, len(content), plan)
+    if not sq["allowed"]:
+        raise HTTPException(
+            status_code=413,
+            detail={
+                "detail": f"Storage quota exceeded. "
+                          f"Used {sq['used_mb']:.1f} MB of {sq['limit_mb']} MB. "
+                          f"Only {sq['remaining_mb']:.1f} MB remaining.",
+                "error_code": sq["error_code"],
+                "used_mb": sq["used_mb"],
+                "limit_mb": sq["limit_mb"],
+                "remaining_mb": sq["remaining_mb"],
+                "file_size_mb": sq["file_size_mb"],
+            },
+        )
+
     # ── Process PDF ──────────────────────────────────────────────────────
     result = pdf_processor.process(content, filename)
 
@@ -162,7 +180,7 @@ async def upload_pdf(
         },
     }
 
-    # ── Background: Save metadata + record upload ────────────────────────
+    # ── Background: Save metadata + record upload + update storage ──────
     task_manager.submit(
         _save_pdf_metadata_background,
         uid=uid,
@@ -172,6 +190,7 @@ async def upload_pdf(
         page_count=result.metadata.page_count,
     )
     task_manager.submit(record_upload, uid)
+    task_manager.submit(record_storage_upload, uid, len(content))
 
     logger.info(
         f"PDF uploaded: doc_id={doc_id[:8]}, pages={result.metadata.page_count}, "

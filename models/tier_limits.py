@@ -42,8 +42,14 @@ class TierLimits:
     # IP
     global_ip_rate_per_minute: int
 
+    # Storage
+    storage_limit_mb: int = 5120          # total cloud storage in MB
+    max_single_upload_mb: int = 20        # per-file limit in MB
+
     # Features
     priority_ai_queue: bool = False
+    permanent_pdf_retention: bool = False
+    cloud_sync_enabled: bool = True
 
 
 # ─── Tier Definitions ────────────────────────────────────────────────────────
@@ -61,7 +67,11 @@ FREE_TIER = TierLimits(
     otp_cooldown_seconds=60,
     otp_max_failed_attempts=5,
     global_ip_rate_per_minute=15,
+    storage_limit_mb=5120,                            # 5 GB
+    max_single_upload_mb=20,
     priority_ai_queue=False,
+    permanent_pdf_retention=False,
+    cloud_sync_enabled=True,
 )
 
 PREMIUM_TIER = TierLimits(
@@ -77,7 +87,11 @@ PREMIUM_TIER = TierLimits(
     otp_cooldown_seconds=60,
     otp_max_failed_attempts=5,
     global_ip_rate_per_minute=60,
+    storage_limit_mb=51200,                           # 50 GB
+    max_single_upload_mb=100,
     priority_ai_queue=True,
+    permanent_pdf_retention=True,
+    cloud_sync_enabled=True,
 )
 
 # ─── Lookup ──────────────────────────────────────────────────────────────────

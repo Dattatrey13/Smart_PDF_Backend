@@ -116,3 +116,64 @@ class LimitExceededDetail(BaseModel):
     limit: int = 0
     reset_at: Optional[str] = None
     retry_after: Optional[int] = None
+
+
+# ─── Storage Quota ───────────────────────────────────────────────────────────
+
+
+class StorageQuotaDoc(BaseModel):
+    """
+    Mirrors the Firestore document at  storage_quota/{uid}.
+
+    Tracks how much cloud storage a user has consumed.
+    """
+    uid: str
+    used_storage_mb: float = 0.0
+    storage_limit_mb: int = 5120           # 5 GB default (free tier)
+    total_pdf_count: int = 0
+    last_storage_update: Optional[datetime] = None
+    subscription_plan: str = "free"
+
+
+class StorageQuotaResponse(BaseModel):
+    """Returned to the Flutter client for storage UI."""
+    used_storage_mb: float = 0.0
+    storage_limit_mb: int = 5120
+    remaining_storage_mb: float = 5120.0
+    used_percentage: float = 0.0
+    total_pdf_count: int = 0
+    plan: str = "free"
+    warning_level: str = "normal"          # normal | low | critical
+
+
+class RecentPdfItem(BaseModel):
+    """A single PDF in the recent-viewed list."""
+    id: str
+    file_name: str
+    file_size_bytes: int = 0
+    file_size_mb: float = 0.0
+    page_count: int = 0
+    upload_time: Optional[str] = None
+    last_opened: Optional[str] = None
+    storage_url: Optional[str] = None
+    thumbnail_url: Optional[str] = None
+
+
+class RecentPdfsResponse(BaseModel):
+    """Paginated recent PDFs list."""
+    pdfs: List[RecentPdfItem] = []
+    total_count: int = 0
+    total_size_mb: float = 0.0
+
+
+class DeletePdfsRequest(BaseModel):
+    """Request body for bulk PDF deletion."""
+    pdf_ids: List[str] = Field(..., min_length=1, max_length=50)
+
+
+class DeletePdfsResponse(BaseModel):
+    """Response after bulk deletion."""
+    deleted_count: int = 0
+    freed_storage_mb: float = 0.0
+    new_used_storage_mb: float = 0.0
+    new_remaining_storage_mb: float = 0.0

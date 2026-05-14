@@ -31,6 +31,7 @@ from services.usage_service import (
     acquire_job_slot,
     get_usage_status,
 )
+from services.storage_quota_service import check_storage_quota
 from utils.app_check import verify_app_check
 
 logger = logging.getLogger(__name__)
